@@ -1,0 +1,60 @@
+name: Mirror staging.solit.com -> solit.com (pre-launch)
+
+on:
+  schedule:
+    # GitHub cron is UTC only. Both slots fire; the first step keeps only the one
+    # that is 06:xx in Berlin (04:00 UTC in summer time, 05:00 UTC in winter time).
+    - cron: '0 4 * * *'
+    - cron: '0 5 * * *'
+  workflow_dispatch: {}   # "Run workflow" button for manual runs
+
+concurrency:
+  group: solit-com-mirror
+  cancel-in-progress: false
+
+env:
+  SSH_HOST: dedi1823.your-server.de
+  SSH_USER: solitn
+  SSH_PORT: '222'         # Hetzner managed server: shell SSH on 222 (22 is SFTP-only)
+  REMOTE_SCRIPT: wordpress-automation/sync-staging-to-production-solit-com.sh
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Only run at 06:xx Berlin time
+        id: gate
+        run: |
+          HOUR=$(TZ=Europe/Berlin date +%H)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$HOUR" != "06" ]; then
+            echo "Berlin hour is $HOUR - skipping this slot."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.SOLIT_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.SOLIT_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Deploy sync script to server
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          scp -P "$SSH_PORT" scripts/sync-staging-to-production-solit-com.sh \
+            "$SSH_USER@$SSH_HOST:$REMOTE_SCRIPT"
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "chmod 700 ~/$REMOTE_SCRIPT"
+
+      - name: Mirror staging -> production-solit-com
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          ssh -p "$SSH_PORT" -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            "$SSH_USER@$SSH_HOST" "bash ~/$REMOTE_SCRIPT"
