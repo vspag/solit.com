@@ -1,12 +1,7 @@
 name: Mirror staging.solit.com -> solit.com (pre-launch)
 
 on:
-  schedule:
-    # GitHub cron is UTC only. Both slots fire; the first step keeps only the one
-    # that is 06:xx in Berlin (04:00 UTC in summer time, 05:00 UTC in winter time).
-    - cron: '0 4 * * *'
-    - cron: '0 5 * * *'
-  workflow_dispatch: {}   # "Run workflow" button for manual runs
+  workflow_dispatch: {}
 
 concurrency:
   group: solit-com-mirror
